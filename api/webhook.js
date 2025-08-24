@@ -1,12 +1,12 @@
 // Serverless webhook for Messenger/Instagram + WhatsApp Cloud API
 import { sendToMessenger, sendToWhatsApp } from "./send.js";
+import { aiReply } from "./ai.js"; // <-- NEW: AI replies
 
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN; // choose any string, put in Vercel env
-const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN; // from your FB App/Page
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN; // from WhatsApp Cloud API
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID; // WA phone number ID
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;        // any string you set in Vercel
+const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN; // FB Page token
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;    // WhatsApp Cloud API token
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;  // WhatsApp phone number ID
 
-// Vercel-style default export handler
 export default async function handler(req, res) {
   // --- 1) Meta verification for Messenger/IG & WhatsApp (GET) ---
   if (req.method === "GET") {
@@ -24,16 +24,18 @@ export default async function handler(req, res) {
     try {
       const body = req.body;
 
-      // A) Messenger/Instagram payload
-      if (body.object === "page" && body.entry) {
+      // A) Messenger / Instagram payload
+      if (body.object === "page" && Array.isArray(body.entry)) {
         for (const entry of body.entry) {
           const messaging = entry.messaging || [];
           for (const evt of messaging) {
             const senderId = evt.sender?.id;
-            const text = evt.message?.text;
+            // ignore echoes we sent ourselves
+            if (evt.message?.is_echo) continue;
+            const text = (evt.message?.text || "").trim();
             if (senderId && text) {
-              // Simple echo for now. We'll replace with AI later.
-              const reply = await smartReply(text);
+              // --- AI reply instead of rule-based ---
+              const reply = await aiReply(text);
               await sendToMessenger(PAGE_ACCESS_TOKEN, senderId, reply);
             }
           }
@@ -41,15 +43,15 @@ export default async function handler(req, res) {
       }
 
       // B) WhatsApp payload
-      if (body.object === "whatsapp_business_account" && body.entry) {
+      if (body.object === "whatsapp_business_account" && Array.isArray(body.entry)) {
         for (const entry of body.entry) {
           for (const change of entry.changes || []) {
             const messages = change.value?.messages || [];
             for (const msg of messages) {
-              const from = msg.from;        // customer's phone
-              const text = msg.text?.body;  // text message
+              const from = msg.from;               // customer's phone (string)
+              const text = (msg.text?.body || "").trim();
               if (from && text) {
-                const reply = await smartReply(text);
+                const reply = await aiReply(text);
                 await sendToWhatsApp(WHATSAPP_TOKEN, PHONE_NUMBER_ID, from, reply);
               }
             }
@@ -57,23 +59,14 @@ export default async function handler(req, res) {
         }
       }
 
+      // Always 200 OK so Meta doesn't retry
       return res.status(200).send("OK");
     } catch (e) {
       console.error("webhook error:", e?.response?.data || e.message);
+      // Still 200 to acknowledge receipt (prevents repeated retries)
       return res.status(200).send("OK");
     }
   }
 
   res.status(405).send("Method Not Allowed");
-}
-
-// --- Very simple “smart” reply (placeholder). Replace with AI soon.
-async function smartReply(userText) {
-  // Basic intent-driven replies for e-commerce in BD (+ Bangla hints)
-  const t = userText.toLowerCase();
-  if (t.includes("price") || t.includes("dam")) return "Please tell me the product name/size, I’ll send the price. পণ্যের নাম/সাইজ বলুন, দাম পাঠাচ্ছি।";
-  if (t.includes("delivery") || t.includes("shipping")) return "Inside Dhaka: 70 BDT, outside: 130 BDT. ডেলিভারি: ঢাকার ভিতরে ৭০, বাইরে ১৩০ টাকা।";
-  if (t.includes("return") || t.includes("exchange")) return "7-day easy return/exchange. Proof of purchase required. ৭ দিনের মধ্যে রিটার্ন/এক্সচেঞ্জ।";
-  if (t.includes("order") || t.includes("buy") || t.includes("kinte")) return "Please send product, size, color, your full address & phone. অর্ডারের জন্য পণ্য, সাইজ, রং, ঠিকানা ও ফোন দিন।";
-  return "Thanks! How can I help with products, price, delivery or order? পণ্য, দাম, ডেলিভারি বা অর্ডার—কীভাবে সাহায্য করতে পারি?";
 }
