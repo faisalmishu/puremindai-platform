@@ -5,7 +5,7 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 
 export default async function handler(req, res) {
-  // --- Verification (GET) ---
+  // Verify (GET)
   if (req.method === "GET") {
     const mode = req.query["hub.mode"];
     const token = req.query["hub.verify_token"];
@@ -16,28 +16,26 @@ export default async function handler(req, res) {
     return res.status(403).send("Verification failed");
   }
 
-  // --- Messages (POST) ---
+  // Messages (POST)
   if (req.method === "POST") {
     try {
       let body = req.body;
       if (typeof body === "string") { try { body = JSON.parse(body); } catch {} }
 
-      // Messenger / Page payload
       if (body?.object === "page" && Array.isArray(body.entry)) {
         for (const entry of body.entry) {
           const messaging = entry.messaging || [];
           for (const evt of messaging) {
-            if (evt.message?.is_echo) continue; // ignore our own echoes
+            if (evt.message?.is_echo) continue;
             const senderId = evt.sender?.id;
             const text = (evt.message?.text || "").trim();
             if (!senderId || !text) continue;
 
-            // AI reply
             const reply = await aiReply(text);
 
-            // send back
             const url = `https://graph.facebook.com/v18.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
             const payload = { recipient: { id: senderId }, message: { text: reply } };
+
             const resp = await fetch(url, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
