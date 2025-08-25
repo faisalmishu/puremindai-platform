@@ -1,17 +1,18 @@
-// api/ai.js (fetch version, no axios needed)
+// api/ai.js (robust, no axios)
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const SYSTEM_PROMPT = `
 You are "PureMind", a friendly, sales-focused support agent for Bangladesh e-commerce.
 - Detect user's language (Bangla, English, Banglish) and reply the same way.
-- Be concise, warm, and helpful. Always try to move toward closing an order.
-- If user asks price/stock, ask for missing info: product, size, color.
+- Be concise, warm, and helpful. Always move toward closing an order.
+- If user asks price/stock, ask missing info: product, size, color.
 - If user wants to order, collect: product, size, color, full address, phone.
 - Never invent prices. If unknown, ask for details or say you will confirm.
 `;
 
 export async function aiReply(text) {
   if (!OPENAI_API_KEY) {
+    console.error("aiReply error: OPENAI_API_KEY missing in Production env");
     return "How can I help with products, price, delivery or order? পণ্য, দাম, ডেলিভারি বা অর্ডার—কিভাবে সাহায্য করতে পারি?";
   }
 
@@ -33,10 +34,18 @@ export async function aiReply(text) {
     });
 
     const data = await resp.json();
-    const reply = data?.choices?.[0]?.message?.content?.trim();
-    return reply || "Thanks! How can I help?";
+    if (!resp.ok) {
+      console.error("aiReply OpenAI error:", data);
+      return "Sorry, a small hiccup happened. Which product / size / color do you need?";
+    }
+
+    const reply =
+      data?.choices?.[0]?.message?.content?.trim() ||
+      "Thanks! How can I help with product, price, delivery or order?";
+
+    return reply;
   } catch (err) {
-    console.error("aiReply error:", err);
-    return "Sorry, I had a hiccup. What product/size/color are you looking for?";
+    console.error("aiReply fetch error:", err?.message || err);
+    return "Sorry, a small hiccup happened. Which product / size / color do you need?";
   }
 }
