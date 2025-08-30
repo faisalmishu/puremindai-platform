@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>PureMind Admin – Catalog Import</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>body{font-family:system-ui,Arial;max-width:720px;margin:20px auto;padding:0 12px}textarea{width:100%;height:220px}input,button{padding:8px}.row{margin-bottom:12px}pre{background:#f7f7f7;padding:10px;overflow:auto}</style>
+</head>
+<body>
+  <h1>PureMind Admin – Catalog Import</h1>
+  <div class="row"><label>Admin Key</label><br/><input id="adminKey" placeholder="ADMIN_KEY" /></div>
+  <div class="row"><label>Tenant ID (UUID)</label><br/><input id="tenantId" placeholder="paste tenant id" /></div>
+  <div class="row"><label>CSV (sku,name,price,tags,stock,image_url)</label><br/><textarea id="csv"></textarea></div>
+  <button id="send">Import CSV</button>
+  <h3>Result</h3><pre id="out"></pre>
+  <script>
+    document.getElementById('send').onclick = async () => {
+      const adminKey = document.getElementById('adminKey').value.trim();
+      const tenantId = document.getElementById('tenantId').value.trim();
+      const csv = document.getElementById('csv').value;
+      const r = await fetch('/api/catalog-import', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ adminKey, tenantId, csv })
+      });
+      document.getElementById('out').textContent = JSON.stringify(await r.json(), null, 2);
+    };
+  </script>
+</body>
+</html>
