@@ -1,52 +1,69 @@
 // api/ai.js
+import axios from "axios";
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_PROJECT = process.env.OPENAI_PROJECT || "";
-const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.openai.com";
-const MODEL_NAME = process.env.MODEL_NAME || "gpt-3.5-turbo";
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini";   // OpenAI model
+const FALLBACK_MODEL = process.env.FALLBACK_MODEL || "openrouter/llama-3.1-70b"; // fallback
 
-function buildMessages(text, context = "") {
-  const ctx = context ? `\nCATALOG CONTEXT:\n${context}\n` : "";
-  return [
-    {
-      role: "system",
-      content: `
-You are "PureMind", a friendly, sales-focused support agent for Bangladesh e-commerce.
-- Use Bangla/English based on user.
-- If catalog context is provided, suggest 1–3 in-stock items with name + price (BDT).
-- If unsure, ask 1–2 clarifying questions.
-- If user wants to order, collect: product/SKU, size, color, full address, phone.
-${ctx}
-`
-    },
-    { role: "user", content: text || "" }
-  ];
-}
+const SYSTEM_PROMPT = `
+You are "PureMind", a friendly sales-focused support agent for Bangladesh e-commerce.
+- Detect language (Bangla, English, Banglish) and reply the same way.
+- Be concise, warm, and helpful.
+- Always try to move toward closing an order.
+- If asked price/stock, request product, size, color.
+- If user wants to order, collect product, size, color, address, phone.
+`;
 
-export async function aiReply(text, context = "") {
-  if (!OPENAI_API_KEY) {
-    console.error("OPENAI_API_KEY missing");
-    return "How can I help with products, price, delivery or order? পণ্য, দাম, ডেলিভারি বা অর্ডার—কিভাবে সাহায্য করতে পারি?";
-  }
-
-  const headers = { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" };
-  if (OPENAI_PROJECT) headers["OpenAI-Project"] = OPENAI_PROJECT;
-
-  try {
-    const resp = await fetch(`${OPENAI_BASE_URL}/v1/chat/completions`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ model: MODEL_NAME, temperature: 0.4, messages: buildMessages(text, context) })
-    });
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      console.error("OpenAI error:", resp.status, data);
-      if (resp.status === 429) return "Quota exceeded. Please add billing to OpenAI.";
-      return "Sorry, a small hiccup happened. Which product/size/color do you need?";
+export async function aiReply(text) {
+  // 1) Try OpenAI first
+  if (OPENAI_API_KEY) {
+    try {
+      const { data } = await axios.post(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          model: MODEL_NAME,
+          temperature: 0.5,
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: text || "" },
+          ],
+        },
+        { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
+      );
+      return data?.choices?.[0]?.message?.content?.trim() || "How can I help?";
+    } catch (err) {
+      console.error("OpenAI failed:", err?.response?.data || err.message);
     }
-    return data?.choices?.[0]?.message?.content?.trim()
-      || "Thanks! How can I help with product, price, delivery or order?";
-  } catch (e) {
-    console.error("aiReply error:", e?.message || e);
-    return "Sorry, a small hiccup happened. Which product/size/color do you need?";
   }
+
+  // 2) Fallback: OpenRouter
+  if (OPENROUTER_API_KEY) {
+    try {
+      const { data } = await axios.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          model: FALLBACK_MODEL,
+          temperature: 0.5,
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: text || "" },
+          ],
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+            "HTTP-Referer": "https://puremindai-platform.vercel.app", // optional but recommended
+            "X-Title": "PureMind Assistant",
+          },
+        }
+      );
+      return data?.choices?.[0]?.message?.content?.trim() || "How can I help?";
+    } catch (err) {
+      console.error("OpenRouter failed:", err?.response?.data || err.message);
+    }
+  }
+
+  // If both fail
+  return "Sorry, I had a hiccup. What product/size/color are you looking for?";
 }
